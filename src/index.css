@@ -1,0 +1,249 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Password Vault - Refined Design System */
+
+@layer base {
+  :root {
+    /* Typography */
+    --font-display: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+
+    /* Light palette - warm grays with better contrast */
+    --background: 30 6% 97%;
+    --foreground: 30 5% 15%;
+
+    --card: 30 8% 100%;
+    --card-foreground: 30 5% 15%;
+
+    --popover: 30 8% 100%;
+    --popover-foreground: 30 5% 15%;
+
+    --primary: 30 5% 18%;
+    --primary-foreground: 30 6% 98%;
+
+    --secondary: 30 5% 90%;
+    --secondary-foreground: 30 5% 20%;
+
+    --muted: 30 5% 91%;
+    --muted-foreground: 30 4% 40%;
+
+    --accent: 30 5% 88%;
+    --accent-foreground: 30 5% 15%;
+
+    --destructive: 0 60% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 45% 42%;
+
+    --border: 30 5% 82%;
+    --input: 30 6% 88%;
+    --ring: 30 5% 35%;
+
+    --radius: 0.625rem;
+
+    /* Soft shadows */
+    --shadow-xs: 0 1px 2px 0 hsl(30 5% 15% / 0.03);
+    --shadow-sm: 0 1px 3px 0 hsl(30 5% 15% / 0.04);
+    --shadow-card: 0 1px 4px -1px hsl(30 5% 15% / 0.05);
+    --shadow-md: 0 2px 8px -2px hsl(30 5% 15% / 0.06);
+    --shadow-xl: 0 8px 24px -6px hsl(30 5% 15% / 0.1);
+  }
+
+  .dark {
+    --background: 30 3% 7%;
+    --foreground: 30 5% 95%;
+
+    --card: 30 3% 10%;
+    --card-foreground: 30 5% 95%;
+
+    --popover: 30 3% 10%;
+    --popover-foreground: 30 5% 95%;
+
+    --primary: 30 5% 92%;
+    --primary-foreground: 30 3% 8%;
+
+    --secondary: 30 3% 15%;
+    --secondary-foreground: 30 5% 92%;
+
+    --muted: 30 3% 13%;
+    --muted-foreground: 30 3% 52%;
+
+    --accent: 30 3% 17%;
+    --accent-foreground: 30 5% 95%;
+
+    --destructive: 0 60% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 145 45% 48%;
+
+    --border: 30 3% 17%;
+    --input: 30 3% 13%;
+    --ring: 30 5% 75%;
+
+    --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.15);
+    --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.2);
+    --shadow-card: 0 2px 8px -2px hsl(0 0% 0% / 0.25), 0 1px 2px -1px hsl(0 0% 0% / 0.2);
+    --shadow-md: 0 4px 12px -4px hsl(0 0% 0% / 0.3), 0 2px 4px -2px hsl(0 0% 0% / 0.25);
+    --shadow-xl: 0 20px 40px -10px hsl(0 0% 0% / 0.4), 0 8px 16px -6px hsl(0 0% 0% / 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-body);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    letter-spacing: -0.01em;
+  }
+
+  /* Headings use display font */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  /* Mono text */
+  .font-mono, code, pre, [data-mono] {
+    font-family: var(--font-mono);
+    letter-spacing: 0;
+  }
+
+  /* Smooth theme transitions */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Theme transition - smooth color changes */
+  html.theme-transition,
+  html.theme-transition *,
+  html.theme-transition *::before,
+  html.theme-transition *::after {
+    transition: background-color 0.4s ease, 
+                color 0.3s ease, 
+                border-color 0.3s ease, 
+                box-shadow 0.3s ease,
+                fill 0.3s ease,
+                stroke 0.3s ease !important;
+    transition-delay: 0 !important;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.15);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.25);
+  }
+}
+
+@layer components {
+  /* Refined button text */
+  .btn-text {
+    @apply font-medium tracking-tight;
+    font-family: var(--font-display);
+  }
+
+  /* Refined label text */
+  .label-text {
+    @apply text-sm font-medium tracking-tight;
+    font-family: var(--font-display);
+  }
+
+  /* Refined input */
+  .input-refined {
+    @apply text-sm tracking-tight;
+    font-family: var(--font-body);
+  }
+
+  /* Icon container - standardized sizing */
+  .icon-sm {
+    @apply w-3.5 h-3.5;
+  }
+  
+  .icon-md {
+    @apply w-4 h-4;
+  }
+  
+  .icon-lg {
+    @apply w-5 h-5;
+  }
+
+  /* Card refined */
+  .card-refined {
+    @apply bg-card border border-border rounded-xl;
+    box-shadow: var(--shadow-card);
+  }
+}
+
+@layer utilities {
+  .shadow-xs {
+    box-shadow: var(--shadow-xs);
+  }
+
+  .shadow-sm {
+    box-shadow: var(--shadow-sm);
+  }
+
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .shadow-md {
+    box-shadow: var(--shadow-md);
+  }
+
+  .shadow-xl {
+    box-shadow: var(--shadow-xl);
+  }
+}
+
+/* Animation for PIN shake */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+/* Focus visible improvements */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Security: Disable text selection on sensitive elements */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Security: Prevent printing sensitive content */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
