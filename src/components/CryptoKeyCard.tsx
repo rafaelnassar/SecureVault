@@ -75,22 +75,22 @@ export function CryptoKeyCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.96 }}
-      transition={{ duration: 0.2 }}
-      className="bg-card border border-border rounded-xl overflow-hidden hover:border-muted-foreground/20 transition-all duration-200"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+      className="bg-card border border-border rounded-xl overflow-hidden hover:border-muted-foreground/30 transition-all duration-200 flex flex-col"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3">
+      <div className="flex items-center justify-between px-3 py-2.5">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/10 flex items-center justify-center flex-shrink-0">
-            <span className="text-lg font-semibold text-amber-500">₿</span>
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/10 flex items-center justify-center flex-shrink-0 border border-amber-500/20">
+            <span className="text-lg font-bold text-amber-500">₿</span>
           </div>
           <div className="min-w-0">
-            <h3 className="font-semibold text-foreground truncate text-sm">{name}</h3>
+            <h3 className="font-semibold text-foreground truncate text-base leading-tight">{name}</h3>
             {login && (
-              <p className="text-xs text-muted-foreground truncate">{login}</p>
+              <p className="text-sm text-muted-foreground truncate leading-tight">{login}</p>
             )}
           </div>
         </div>
@@ -99,31 +99,31 @@ export function CryptoKeyCard({
           <TooltipProvider delayDuration={300}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={onShare} className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <Button variant="ghost" size="icon" onClick={onShare} className="h-9 w-9 text-muted-foreground hover:text-foreground" data-size="icon">
                   <Share2 className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Compartilhar</p></TooltipContent>
+              <TooltipContent><p className="text-sm">Compartilhar</p></TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <TooltipProvider delayDuration={300}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={onEdit} className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                <Button variant="ghost" size="icon" onClick={onEdit} className="h-9 w-9 text-muted-foreground hover:text-foreground" data-size="icon">
                   <Pencil className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Editar</p></TooltipContent>
+              <TooltipContent><p className="text-sm">Editar</p></TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <TooltipProvider delayDuration={300}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={onDelete} className="h-8 w-8 text-destructive/60 hover:text-destructive hover:bg-destructive/10">
+                <Button variant="ghost" size="icon" onClick={onDelete} className="h-9 w-9 text-destructive/60 hover:text-destructive hover:bg-destructive/10" data-size="icon">
                   <Trash2 className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent><p className="text-xs">Excluir</p></TooltipContent>
+              <TooltipContent><p className="text-sm">Excluir</p></TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
@@ -133,7 +133,7 @@ export function CryptoKeyCard({
       <div className="h-px bg-border" />
 
       {/* Content */}
-      <div className="px-4 py-3 space-y-2.5">
+      <div className="px-3 py-2.5 space-y-2.5">
         {/* Login */}
         {login && (
           <FieldBox
@@ -161,7 +161,7 @@ export function CryptoKeyCard({
           <button
             onClick={() => setExpanded(!expanded)}
             className={cn(
-              "w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all border",
+              "w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all border",
               expanded 
                 ? "text-foreground bg-muted/50 border-border" 
                 : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30 hover:border-border"
@@ -184,7 +184,7 @@ export function CryptoKeyCard({
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
             >
-              <div className="space-y-2.5 pt-1">
+              <div className="space-y-3 pt-1">
                 {/* Private Key */}
                 {privateKey && (
                   <FieldBox
@@ -217,12 +217,12 @@ export function CryptoKeyCard({
 
                 {/* Recovery Words */}
                 {recoveryWords && recoveryWords.length > 0 && (
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <div className="flex items-center justify-between px-1">
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-sm text-muted-foreground">
                         Palavras de Recuperação ({recoveryWords.length})
                       </span>
-                      <div className="flex items-center gap-0.5">
+                      <div className="flex items-center gap-1">
                         <ActionButton
                           icon={isVisible('recoveryWords') ? EyeOff : Eye}
                           onClick={() => toggleVisibility('recoveryWords')}
@@ -237,14 +237,14 @@ export function CryptoKeyCard({
                       </div>
                     </div>
                     <div className="bg-muted/40 border border-border rounded-lg p-3">
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                      <div className="grid grid-cols-2 gap-2">
                         {recoveryWords.map((word, i) => (
-                          <div key={i} className="flex items-center gap-2 bg-background/60 rounded-md px-2 py-1.5">
-                            <span className="text-[10px] text-muted-foreground font-mono w-4 text-right tabular-nums">
+                          <div key={i} className="flex items-center gap-2 bg-background/60 rounded-md px-3 py-1.5">
+                            <span className="text-xs text-muted-foreground font-mono w-5 text-right tabular-nums">
                               {i + 1}.
                             </span>
                             <span className={cn(
-                              "text-xs font-mono flex-1",
+                              "text-sm font-mono flex-1 leading-tight",
                               isVisible('recoveryWords') ? "text-foreground" : "text-muted-foreground"
                             )}>
                               {isVisible('recoveryWords') ? word : '••••'}
@@ -298,10 +298,10 @@ function FieldBox({
   multiline?: boolean;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex items-center justify-between px-1">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <div className="flex items-center gap-0.5">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <div className="flex items-center gap-1">
           {isSecret && onToggle && (
             <ActionButton
               icon={isVisible ? EyeOff : Eye}
@@ -320,7 +320,7 @@ function FieldBox({
         </div>
       </div>
       <div className={cn(
-        "bg-muted/40 border border-border rounded-lg px-3 text-xs",
+        "bg-muted/40 border border-border rounded-lg px-3 text-sm",
         multiline ? "py-2.5 leading-relaxed break-all" : "py-2.5",
         mono && "font-mono",
         isSecret && !isVisible ? "text-muted-foreground" : "text-foreground"
@@ -352,14 +352,15 @@ function ActionButton({
             size="icon"
             onClick={(e) => { e.stopPropagation(); onClick(); }}
             className={cn(
-              "h-7 w-7",
+              "h-8 w-8",
               success ? "text-success" : "text-muted-foreground hover:text-foreground"
             )}
+            data-size="icon"
           >
-            <Icon className="w-3.5 h-3.5" />
+            <Icon className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent><p className="text-xs">{tooltip}</p></TooltipContent>
+        <TooltipContent><p className="text-sm">{tooltip}</p></TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

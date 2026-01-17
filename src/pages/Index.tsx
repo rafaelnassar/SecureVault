@@ -1,25 +1,19 @@
-import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { VaultProvider, useVault } from '@/contexts/VaultContext';
 import { LockScreen } from '@/components/LockScreen';
 import { PasswordVault } from '@/components/PasswordVault';
-import { enableDevtoolsProtection } from '@/lib/security';
 
 const pageTransition = {
-  initial: { opacity: 0 },
-  animate: { opacity: 1 },
-  exit: { opacity: 0 },
-  transition: { duration: 0.25, ease: [0.22, 1, 0.36, 1] as const }
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -12 },
+  transition: { duration: 0.3, ease: [0.4, 0, 0.2, 1] as const }
 };
 
 function VaultApp() {
   const { state } = useVault();
 
-  // Enable devtools protection on mount
-  useEffect(() => {
-    const cleanup = enableDevtoolsProtection();
-    return cleanup;
-  }, []);
+  // DevTools protection is now handled in main.tsx before app renders
 
   if (state === 'loading') {
     return (

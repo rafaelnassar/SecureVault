@@ -1,44 +1,144 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Lock, KeyRound, AlertTriangle } from 'lucide-react';
+import { Shield, Lock, KeyRound, AlertTriangle, Timer } from 'lucide-react';
 import { PinInput } from './PinInput';
 import { RecoveryWordsModal } from './RecoveryWordsModal';
 import { RecoveryWordsInput } from './RecoveryWordsInput';
+import { WipeCountdown } from './WipeCountdown';
 import { Button } from '@/components/ui/button';
 import { useVault } from '@/contexts/VaultContext';
-import { getRecoveryWords, setupVault } from '@/lib/vault';
-import { validateRecoveryWords } from '@/lib/recoveryWords';
-
-const MAX_ATTEMPTS_BEFORE_RECOVERY = 3;
-const MAX_ATTEMPTS_BEFORE_DESTROY = 5;
+import { 
+  recordFailedPinAttempt, 
+  recordSuccessfulPinAttempt, 
+  getRemainingPinAttempts,
+  isPinLocked,
+  wasPinLockedOnExit,
+  clearPinAttempts,
+  getTimeUntilNextAttempt
+} from '@/lib/pinAttempts';
+import { destroyVault } from '@/lib/vault';
+import { isWeakPin } from '@/lib/security';
 
 export function LockScreen() {
-  const { state, setup, unlock, completeRecoverySetup, pendingRecoveryWords, destroy } = useVault();
+  const { state, setup, unlock, completeRecoverySetup, pendingRecoveryWords } = useVault();
   const [error, setError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirmPin, setConfirmPin] = useState<string | null>(null);
-  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [remainingAttempts, setRemainingAttempts] = useState(5);
   const [showRecoveryOption, setShowRecoveryOption] = useState(false);
   const [showRecoveryInput, setShowRecoveryInput] = useState(false);
-  const [showDestroyWarning, setShowDestroyWarning] = useState(false);
-  const [destroying, setDestroying] = useState(false);
+  const [showWipeCountdown, setShowWipeCountdown] = useState(false);
+  const [waitTimeMs, setWaitTimeMs] = useState(0);
+  const [isRateLimited, setIsRateLimited] = useState(false);
 
   const isSetup = state === 'setup';
   const isShowRecovery = state === 'show-recovery';
 
-  // Reset failed attempts when vault state changes
-  useEffect(() => {
-    if (state === 'unlocked' || state === 'setup') {
-      setFailedAttempts(0);
-      setShowRecoveryOption(false);
-      setShowDestroyWarning(false);
+  // Check rate limiting countdown
+  const checkRateLimiting = useCallback(async () => {
+    const timeUntil = await getTimeUntilNextAttempt();
+    if (timeUntil > 0) {
+      setWaitTimeMs(timeUntil);
+      setIsRateLimited(true);
+    } else {
+      setWaitTimeMs(0);
+      setIsRateLimited(false);
     }
-  }, [state]);
+  }, []);
+
+  // Rate limiting countdown timer
+  useEffect(() => {
+    if (waitTimeMs > 0) {
+      const timer = setInterval(() => {
+        setWaitTimeMs(prev => {
+          const newTime = prev - 1000;
+          if (newTime <= 0) {
+            setIsRateLimited(false);
+            return 0;
+          }
+          return newTime;
+        });
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [waitTimeMs]);
+
+  // Verificar estado ao carregar
+  useEffect(() => {
+    const checkLockState = async () => {
+      if (state === 'locked') {
+        // Check rate limiting first
+        await checkRateLimiting();
+        
+        // Verificar se estava bloqueado antes de fechar o app
+        const wasLocked = await wasPinLockedOnExit();
+        const isLocked = await isPinLocked();
+        if (wasLocked || isLocked) {
+          setShowWipeCountdown(true);
+        } else {
+          const remaining = await getRemainingPinAttempts();
+          setRemainingAttempts(remaining);
+          // Mostrar opção de recuperação se já passou de 3 tentativas
+          const attempts = 5 - remaining;
+          if (attempts >= 3) {
+            setShowRecoveryOption(true);
+          }
+        }
+      } else if (state === 'unlocked' || state === 'setup') {
+        // Limpar tentativas após sucesso
+        await clearPinAttempts();
+        setShowRecoveryOption(false);
+      }
+    };
+    checkLockState();
+  }, [state, checkRateLimiting]);
+
+  const handleWipe = async () => {
+    try {
+      await destroyVault();
+      await clearPinAttempts();
+      
+      // Garantia extra: solicita a remoção completa do IndexedDB
+      await new Promise<void>((resolve) => {
+        try {
+          const req = indexedDB.deleteDatabase('password-vault');
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve();
+          req.onblocked = () => resolve();
+        } catch {
+          resolve();
+        }
+      });
+      
+      window.location.reload();
+    } catch {
+      window.location.reload();
+    }
+  };
 
   const handlePinComplete = async (pin: string) => {
     setError(false);
+    setErrorMessage(null);
+    
+    // Check rate limiting before allowing attempt
+    if (!isSetup) {
+      const timeUntil = await getTimeUntilNextAttempt();
+      if (timeUntil > 0) {
+        setWaitTimeMs(timeUntil);
+        setIsRateLimited(true);
+        return;
+      }
+    }
     
     if (isSetup) {
+      // Validate PIN strength during setup
+      if (isWeakPin(pin)) {
+        setError(true);
+        setErrorMessage('PIN muito fraco. Evite sequências ou números repetidos.');
+        return;
+      }
+      
       if (!confirmPin) {
         setConfirmPin(pin);
         return;
@@ -46,6 +146,7 @@ export function LockScreen() {
       
       if (pin !== confirmPin) {
         setError(true);
+        setErrorMessage('Os PINs não coincidem. Tente novamente.');
         setConfirmPin(null);
         return;
       }
@@ -56,6 +157,7 @@ export function LockScreen() {
       
       if (!result.success) {
         setError(true);
+        setErrorMessage('Erro ao configurar o cofre.');
         setConfirmPin(null);
       }
     } else {
@@ -63,14 +165,25 @@ export function LockScreen() {
       const success = await unlock(pin);
       setLoading(false);
       
-      if (!success) {
-        const newAttempts = failedAttempts + 1;
-        setFailedAttempts(newAttempts);
+      if (success) {
+        // Sucesso! Limpar tentativas
+        await recordSuccessfulPinAttempt();
+      } else {
+        // Falha - registrar tentativa
+        const result = await recordFailedPinAttempt();
+        setRemainingAttempts(result.attemptsRemaining);
         setError(true);
+        setErrorMessage(`PIN incorreto. ${result.attemptsRemaining} tentativa(s) restante(s).`);
         
-        if (newAttempts >= MAX_ATTEMPTS_BEFORE_DESTROY) {
-          setShowDestroyWarning(true);
-        } else if (newAttempts >= MAX_ATTEMPTS_BEFORE_RECOVERY) {
+        // Set rate limiting wait time
+        if (result.waitTimeMs > 0) {
+          setWaitTimeMs(result.waitTimeMs);
+          setIsRateLimited(true);
+        }
+        
+        if (result.shouldWipe) {
+          setShowWipeCountdown(true);
+        } else if (result.showRecoveryOption) {
           setShowRecoveryOption(true);
         }
       }
@@ -79,38 +192,22 @@ export function LockScreen() {
 
   const handleRecoveryVerified = async () => {
     setShowRecoveryInput(false);
-    // After recovery verification, go to PIN change
-    // The vault is now "unlocked" via recovery - redirect to change PIN
+    // Limpar tentativas de PIN após recuperação bem-sucedida
+    await clearPinAttempts();
+    setRemainingAttempts(5);
     setConfirmPin(null);
-    setFailedAttempts(0);
     setShowRecoveryOption(false);
   };
 
-  const handleDestroy = async () => {
-    setDestroying(true);
-    await destroy();
-
-    // Garantia extra: solicita a remoção completa do IndexedDB do cofre.
-    // Mesmo que o navegador marque como "blocked", o reload fecha as conexões e finaliza a limpeza.
-    await new Promise<void>((resolve) => {
-      try {
-        const req = indexedDB.deleteDatabase('password-vault');
-        req.onsuccess = () => resolve();
-        req.onerror = () => resolve();
-        req.onblocked = () => resolve();
-      } catch {
-        resolve();
-      }
-    });
-
-    setDestroying(false);
-    window.location.reload();
-  };
+  // Tela de countdown para wipe (não pode ser fechada)
+  if (showWipeCountdown) {
+    return <WipeCountdown onComplete={handleWipe} />;
+  }
 
   // Show recovery words modal after initial setup
   if (isShowRecovery && pendingRecoveryWords) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4 safe-area-inset">
         <RecoveryWordsModal
           open={true}
           words={pendingRecoveryWords}
@@ -123,92 +220,45 @@ export function LockScreen() {
   // Show recovery words input modal
   if (showRecoveryInput) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4 safe-area-inset">
         <RecoveryWordsInput
           open={true}
           onVerified={handleRecoveryVerified}
           onCancel={() => setShowRecoveryInput(false)}
+          onWiped={() => window.location.reload()}
         />
       </div>
     );
   }
 
-  // Show destroy warning
-  if (showDestroyWarning) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-sm text-center"
-        >
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ type: 'spring', stiffness: 200, damping: 15 }}
-            className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-destructive/10 mb-6"
-          >
-            <AlertTriangle className="w-10 h-10 text-destructive" />
-          </motion.div>
-          
-          <h1 className="text-2xl font-semibold text-foreground mb-2">
-            Limite de tentativas
-          </h1>
-          <p className="text-muted-foreground text-sm mb-6">
-            Você excedeu o número máximo de tentativas. Por segurança, todos os dados serão apagados.
-          </p>
-          
-          <div className="flex flex-col gap-3">
-            <Button
-              variant="destructive"
-              onClick={handleDestroy}
-              disabled={destroying}
-              className="w-full"
-            >
-              {destroying ? 'Apagando dados...' : 'Entendi, apagar tudo'}
-            </Button>
-            
-            <Button
-              variant="outline"
-              onClick={() => setShowRecoveryInput(true)}
-              className="w-full"
-            >
-              Usar palavras de recuperação
-            </Button>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 safe-area-inset">
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-        className="w-full max-w-xs"
+        className="w-full max-w-sm px-2"
       >
-        <div className="text-center mb-8">
+        <div className="text-center mb-8 sm:mb-10">
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 0.1 }}
-            className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-muted mb-6"
+            className="inline-flex items-center justify-center w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-muted mb-6"
           >
             {isSetup ? (
-              <KeyRound className="w-9 h-9 text-foreground" />
+              <KeyRound className="w-9 h-9 sm:w-11 sm:h-11 text-foreground" />
             ) : (
-              <Lock className="w-9 h-9 text-foreground" />
+              <Lock className="w-9 h-9 sm:w-11 sm:h-11 text-foreground" />
             )}
           </motion.div>
           
-          <h1 className="text-2xl font-semibold text-foreground mb-2 tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-foreground mb-2 tracking-tight">
             {isSetup 
               ? (confirmPin ? 'Confirme seu PIN' : 'Crie seu PIN') 
               : 'Bem-vindo de volta'}
           </h1>
-          <p className="text-muted-foreground text-base">
+          <p className="text-muted-foreground text-base sm:text-lg text-balance">
             {isSetup 
               ? (confirmPin 
                   ? 'Digite o PIN novamente para confirmar' 
@@ -228,25 +278,47 @@ export function LockScreen() {
             <PinInput
               onComplete={handlePinComplete}
               error={error}
-              disabled={loading}
+              disabled={loading || isRateLimited}
             />
+            
+            {/* Rate limiting countdown */}
+            {isRateLimited && waitTimeMs > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 flex items-center justify-center gap-2 text-amber-600 dark:text-amber-500 text-sm sm:text-base p-3 bg-amber-500/10 rounded-xl"
+              >
+                <Timer className="w-4 h-4" />
+                <span>Aguarde {Math.ceil(waitTimeMs / 1000)}s para tentar novamente</span>
+              </motion.div>
+            )}
           </motion.div>
         </AnimatePresence>
 
         <AnimatePresence>
-          {error && (
+          {error && errorMessage && (
             <motion.p
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="text-destructive text-sm text-center mt-4"
+              className="text-destructive text-sm sm:text-base text-center mt-5"
             >
-              {isSetup && confirmPin 
-                ? 'Os PINs não coincidem. Tente novamente.' 
-                : `PIN incorreto. ${MAX_ATTEMPTS_BEFORE_DESTROY - failedAttempts} tentativa(s) restante(s).`}
+              {errorMessage}
             </motion.p>
           )}
         </AnimatePresence>
+
+        {/* Mostrar tentativas restantes mesmo sem erro (ao recarregar) */}
+        {!error && !isSetup && remainingAttempts < 5 && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-5 flex items-center justify-center gap-2 text-amber-600 dark:text-amber-500 text-sm sm:text-base"
+          >
+            <AlertTriangle className="w-4 h-4" />
+            <span>{remainingAttempts} tentativa(s) restante(s)</span>
+          </motion.div>
+        )}
 
         {showRecoveryOption && !isSetup && (
           <motion.div
@@ -257,16 +329,16 @@ export function LockScreen() {
             <Button
               variant="outline"
               onClick={() => setShowRecoveryInput(true)}
-              className="w-full gap-2"
+              className="w-full gap-2 h-12 text-base"
             >
-              <KeyRound className="w-4 h-4" />
+              <KeyRound className="w-5 h-5" />
               Usar palavras de recuperação
             </Button>
           </motion.div>
         )}
 
-        <div className="mt-10 flex items-center justify-center gap-2 text-muted-foreground text-sm">
-          <Shield className="w-4 h-4" />
+        <div className="mt-10 sm:mt-12 flex items-center justify-center gap-2 text-muted-foreground text-sm sm:text-base">
+          <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
           <span className="tracking-tight">Criptografia AES-256</span>
         </div>
       </motion.div>

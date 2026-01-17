@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Eye, EyeOff, Wallet, User, Key, FileText, Check, Plus, X } from 'lucide-react';
+import { Eye, EyeOff, Wallet, User, Key, FileText, Check, Plus, X, AlertCircle } from 'lucide-react';
 import { Modal } from './Modal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { sanitizeText } from '@/lib/security';
+import { cryptoKeySchema, sanitizeText } from '@/lib/security';
 import { cn } from '@/lib/utils';
 
 interface CryptoKeyFormProps {
@@ -29,6 +29,14 @@ export interface CryptoKeyData {
 
 type RecoveryType = 'none' | 'phrase' | 'words';
 
+interface FormErrors {
+  name?: string;
+  walletAddress?: string;
+  privateKey?: string;
+  seedPhrase?: string;
+  notes?: string;
+}
+
 export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyFormProps) {
   const [name, setName] = useState('');
   const [login, setLogin] = useState('');
@@ -43,6 +51,7 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
   const [showRecoveryWords, setShowRecoveryWords] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
 
   useEffect(() => {
     if (initialData) {
@@ -76,6 +85,7 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
     setShowSeedPhrase(false);
     setShowRecoveryWords(false);
     setSaved(false);
+    setErrors({});
   }, [initialData, open]);
 
   const handleAddRecoveryWord = () => {
@@ -117,7 +127,25 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
     const safeName = sanitizeText(name.trim());
     const safeAddress = sanitizeText(walletAddress.trim());
     
-    if (!safeName || !safeAddress) return;
+    // Validate with Zod schema
+    const validation = cryptoKeySchema.safeParse({
+      name: safeName,
+      network: 'crypto', // Default network
+      walletAddress: safeAddress,
+      privateKey: privateKey.trim() || undefined,
+      seedPhrase: recoveryType === 'phrase' ? seedPhrase.trim() || undefined : undefined,
+      notes: notes.trim() || undefined,
+    });
+    
+    if (!validation.success) {
+      const newErrors: FormErrors = {};
+      validation.error.errors.forEach(err => {
+        const field = err.path[0] as keyof FormErrors;
+        newErrors[field] = err.message;
+      });
+      setErrors(newErrors);
+      return;
+    }
 
     setSaved(true);
     setLoading(true);
@@ -149,6 +177,7 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
       open={open} 
       onClose={onClose} 
       title={initialData ? 'Editar carteira' : 'Nova carteira'}
+      maxWidth="md"
       scrollable
     >
       <AnimatePresence mode="wait">
@@ -157,17 +186,17 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
             key="success"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="py-8 text-center"
+            className="py-10 text-center"
           >
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-              className="w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-4"
+              className="w-20 h-20 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-5"
             >
-              <Check className="w-8 h-8 text-success" />
+              <Check className="w-10 h-10 text-success" />
             </motion.div>
-            <p className="text-base font-medium text-foreground">
+            <p className="text-lg font-medium text-foreground">
               {initialData ? 'Carteira atualizada!' : 'Carteira adicionada!'}
             </p>
           </motion.div>
@@ -178,88 +207,107 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onSubmit={handleSubmit} 
-            className="space-y-4"
+            className="space-y-5"
           >
             {/* Nome da carteira */}
-            <div className="space-y-1.5">
-              <Label htmlFor="name" className="text-xs font-medium">
+            <div className="space-y-2">
+              <Label htmlFor="name" className="text-sm font-medium">
                 Nome da carteira
               </Label>
               <div className="relative">
-                <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Wallet className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   id="name"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setErrors(prev => ({ ...prev, name: undefined }));
+                  }}
                   placeholder="Ex: Carteira principal"
-                  className="pl-10 h-11"
+                  className={`pl-12 ${errors.name ? 'border-destructive' : ''}`}
                   required
                 />
               </div>
+              {errors.name && (
+                <p className="text-destructive text-sm flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {errors.name}
+                </p>
+              )}
             </div>
 
             {/* Login */}
-            <div className="space-y-1.5">
-              <Label htmlFor="login" className="text-xs font-medium text-muted-foreground">
+            <div className="space-y-2">
+              <Label htmlFor="login" className="text-sm font-medium text-muted-foreground">
                 Login (opcional)
               </Label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   id="login"
                   value={login}
                   onChange={(e) => setLogin(e.target.value)}
                   placeholder="email ou usuário"
-                  className="pl-10 h-11"
+                  className="pl-12"
                 />
               </div>
             </div>
 
             {/* Endereço da carteira */}
-            <div className="space-y-1.5">
-              <Label htmlFor="walletAddress" className="text-xs font-medium">
+            <div className="space-y-2">
+              <Label htmlFor="walletAddress" className="text-sm font-medium">
                 Endereço da carteira
               </Label>
               <Input
                 id="walletAddress"
                 value={walletAddress}
-                onChange={(e) => setWalletAddress(e.target.value)}
+                onChange={(e) => {
+                  setWalletAddress(e.target.value);
+                  setErrors(prev => ({ ...prev, walletAddress: undefined }));
+                }}
                 placeholder="bc1q... ou 0x..."
-                className="h-11 font-mono text-sm"
+                className={`font-mono ${errors.walletAddress ? 'border-destructive' : ''}`}
                 required
               />
+              {errors.walletAddress && (
+                <p className="text-destructive text-sm flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {errors.walletAddress}
+                </p>
+              )}
             </div>
 
             {/* Chave privada */}
-            <div className="space-y-1.5">
-              <Label htmlFor="privateKey" className="text-xs font-medium text-muted-foreground">
+            <div className="space-y-2">
+              <Label htmlFor="privateKey" className="text-sm font-medium text-muted-foreground">
                 Chave privada (opcional)
               </Label>
               <div className="relative">
-                <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   id="privateKey"
                   type={showPrivateKey ? 'text' : 'password'}
                   value={privateKey}
                   onChange={(e) => setPrivateKey(e.target.value)}
                   placeholder="••••••••••••••••"
-                  className="pl-10 pr-11 h-11 font-mono text-sm"
+                  className="pl-12 pr-12 font-mono"
                 />
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
                   onClick={() => setShowPrivateKey(!showPrivateKey)}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9"
+                  data-size="icon"
                 >
-                  {showPrivateKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPrivateKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </Button>
               </div>
             </div>
 
             {/* Tipo de Recuperação */}
             <div className="space-y-3">
-              <Label className="text-xs font-medium text-muted-foreground">
+              <Label className="text-sm font-medium text-muted-foreground">
                 Recuperação (opcional)
               </Label>
               
@@ -268,7 +316,7 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
                   type="button"
                   onClick={() => handleRecoveryTypeChange('none')}
                   className={cn(
-                    "flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-all border",
+                    "flex-1 py-3 px-3 rounded-lg text-sm font-medium transition-all border",
                     recoveryType === 'none'
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
@@ -280,7 +328,7 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
                   type="button"
                   onClick={() => handleRecoveryTypeChange('phrase')}
                   className={cn(
-                    "flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-all border",
+                    "flex-1 py-3 px-3 rounded-lg text-sm font-medium transition-all border",
                     recoveryType === 'phrase'
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
@@ -292,7 +340,7 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
                   type="button"
                   onClick={() => handleRecoveryTypeChange('words')}
                   className={cn(
-                    "flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-all border",
+                    "flex-1 py-3 px-3 rounded-lg text-sm font-medium transition-all border",
                     recoveryType === 'words'
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
@@ -312,13 +360,13 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="relative pt-1">
+                    <div className="relative pt-2">
                       <Textarea
                         value={seedPhrase}
                         onChange={(e) => setSeedPhrase(e.target.value)}
                         placeholder="palavra1 palavra2 palavra3..."
                         className={cn(
-                          "min-h-[80px] pr-11 font-mono text-sm resize-none",
+                          "min-h-[100px] pr-12 font-mono",
                           !showSeedPhrase && "text-security-disc"
                         )}
                         style={!showSeedPhrase ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
@@ -328,9 +376,10 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
                         variant="ghost"
                         size="icon"
                         onClick={() => setShowSeedPhrase(!showSeedPhrase)}
-                        className="absolute right-1 top-2 h-9 w-9"
+                        className="absolute right-2 top-4 h-9 w-9"
+                        data-size="icon"
                       >
-                        {showSeedPhrase ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        {showSeedPhrase ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </Button>
                     </div>
                   </motion.div>
@@ -345,21 +394,21 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="space-y-2 pt-1">
+                    <div className="space-y-3 pt-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-muted-foreground">
+                        <span className="text-sm text-muted-foreground">
                           {recoveryWords.length} palavra{recoveryWords.length !== 1 ? 's' : ''}
                         </span>
-                        <div className="flex gap-1">
+                        <div className="flex gap-2">
                           {recoveryWords.length > 0 && (
                             <Button
                               type="button"
                               variant="ghost"
                               size="sm"
                               onClick={() => setShowRecoveryWords(!showRecoveryWords)}
-                              className="h-7 px-2 gap-1 text-xs"
+                              className="h-9 px-3 gap-2 text-sm"
                             >
-                              {showRecoveryWords ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              {showRecoveryWords ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                               {showRecoveryWords ? 'Ocultar' : 'Mostrar'}
                             </Button>
                           )}
@@ -368,17 +417,18 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
                             variant="outline"
                             size="sm"
                             onClick={handleAddRecoveryWord}
-                            className="h-7 px-2 gap-1 text-xs"
+                            className="h-9 px-3 gap-2 text-sm"
                           >
-                            <Plus className="w-3.5 h-3.5" />
+                            <Plus className="w-4 h-4" />
+                            Adicionar
                           </Button>
                         </div>
                       </div>
                       
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {recoveryWords.map((word, index) => (
                           <div key={index} className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground w-5 text-right font-mono tabular-nums">
+                            <span className="text-sm text-muted-foreground w-6 text-right font-mono tabular-nums">
                               {index + 1}.
                             </span>
                             <Input
@@ -386,16 +436,17 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
                               value={word}
                               onChange={(e) => handleRecoveryWordChange(index, e.target.value)}
                               placeholder="palavra"
-                              className="flex-1 h-9 font-mono text-sm"
+                              className="flex-1 font-mono h-11"
                             />
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon"
                               onClick={() => handleRemoveRecoveryWord(index)}
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              data-size="icon"
                             >
-                              <X className="w-3.5 h-3.5" />
+                              <X className="w-4 h-4" />
                             </Button>
                           </div>
                         ))}
@@ -407,28 +458,28 @@ export function CryptoKeyForm({ open, onClose, onSave, initialData }: CryptoKeyF
             </div>
 
             {/* Notas */}
-            <div className="space-y-1.5">
-              <Label htmlFor="notes" className="text-xs font-medium text-muted-foreground">
+            <div className="space-y-2">
+              <Label htmlFor="notes" className="text-sm font-medium text-muted-foreground">
                 Notas (opcional)
               </Label>
               <div className="relative">
-                <FileText className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
+                <FileText className="absolute left-4 top-4 w-5 h-5 text-muted-foreground" />
                 <Textarea
                   id="notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Anotações adicionais..."
-                  className="min-h-[60px] pl-10 text-sm resize-none"
+                  className="min-h-[80px] pl-12"
                 />
               </div>
             </div>
 
             {/* Botões */}
-            <div className="flex gap-3 pt-3">
-              <Button type="button" variant="outline" onClick={onClose} className="flex-1 h-11" disabled={loading}>
+            <div className="flex gap-3 pt-2">
+              <Button type="button" variant="outline" onClick={onClose} className="flex-1" disabled={loading}>
                 Cancelar
               </Button>
-              <Button type="submit" className="flex-1 h-11" disabled={!name.trim() || !walletAddress.trim() || loading}>
+              <Button type="submit" className="flex-1" disabled={!name.trim() || !walletAddress.trim() || loading}>
                 {initialData ? 'Salvar' : 'Adicionar'}
               </Button>
             </div>

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { isVaultSetup, isVaultLocked, setupVault, unlockVault, lockVault, updateActivity, isRecoverySetupComplete, markRecoverySetupComplete, destroyVault } from '@/lib/vault';
+import { isVaultSetup, isVaultLocked, setupVault, unlockVault, lockVault, updateActivity, isRecoverySetupComplete, markRecoverySetupComplete, destroyVault, refreshSessionTimeout } from '@/lib/vault';
 
 type VaultState = 'loading' | 'setup' | 'locked' | 'unlocked' | 'show-recovery';
 
@@ -17,6 +17,7 @@ interface VaultContextType {
   completeRecoverySetup: () => void;
   pendingRecoveryWords: string[] | null;
   destroy: () => Promise<void>;
+  refreshTimeout: () => Promise<void>;
 }
 
 const VaultContext = createContext<VaultContextType | null>(null);
@@ -114,6 +115,10 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     setState('setup');
   };
 
+  const handleRefreshTimeout = async () => {
+    await refreshSessionTimeout();
+  };
+
   return (
     <VaultContext.Provider
       value={{
@@ -125,6 +130,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         completeRecoverySetup,
         pendingRecoveryWords,
         destroy: handleDestroy,
+        refreshTimeout: handleRefreshTimeout,
       }}
     >
       {children}

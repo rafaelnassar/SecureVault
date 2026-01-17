@@ -4,13 +4,31 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
-const labelVariants = cva("text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70");
+// Label com tipografia consistente - usa font-display (Manrope)
+const labelVariants = cva(
+  "text-sm font-medium leading-none tracking-tight peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
+  {
+    variants: {
+      size: {
+        default: "text-sm",
+        lg: "text-base",
+      },
+    },
+    defaultVariants: {
+      size: "default",
+    },
+  }
+);
 
 const Label = React.forwardRef<
   React.ElementRef<typeof LabelPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root> & VariantProps<typeof labelVariants>
->(({ className, ...props }, ref) => (
-  <LabelPrimitive.Root ref={ref} className={cn(labelVariants(), className)} {...props} />
+>(({ className, size, ...props }, ref) => (
+  <LabelPrimitive.Root 
+    ref={ref} 
+    className={cn(labelVariants({ size }), className)} 
+    {...props} 
+  />
 ));
 Label.displayName = LabelPrimitive.Root.displayName;
 

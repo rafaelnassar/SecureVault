@@ -3,17 +3,68 @@ import { getConfig, setConfig, getAllPasswords, addPassword, updatePassword, del
 import { generateRecoveryWords } from './recoveryWords';
 
 const VERIFICATION_TEXT = 'vault-verified';
-const SESSION_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+const DEFAULT_SESSION_TIMEOUT = 2 * 60 * 1000; // 2 minutes default
 
 let currentKey: CryptoKey | null = null;
 let lastActivity: number = Date.now();
 let sessionCheckInterval: number | null = null;
+let currentSessionTimeout: number = DEFAULT_SESSION_TIMEOUT;
 
 export type { CryptoKeyEntry } from './db';
 
+/**
+ * Gets the current session timeout in milliseconds
+ */
+export async function getSessionTimeout(): Promise<number> {
+  const config = await getConfig();
+  const minutes = config?.sessionTimeoutMinutes || 2;
+  return minutes * 60 * 1000;
+}
+
+/**
+ * Sets the session timeout in minutes
+ */
+export async function setSessionTimeout(minutes: number): Promise<void> {
+  const config = await getConfig();
+  if (config) {
+    await setConfig({ ...config, sessionTimeoutMinutes: minutes });
+    currentSessionTimeout = minutes * 60 * 1000;
+    // Reset lastActivity to apply the new timeout immediately
+    lastActivity = Date.now();
+
+    // Notify UI hooks (e.g., useAutoLockTimer) to update instantly
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('vault:session-timeout-changed', {
+          detail: { minutes, ms: currentSessionTimeout },
+        })
+      );
+    }
+  }
+}
+
+/**
+ * Forces a refresh of the session timeout from the database
+ * Should be called when settings change
+ */
+export async function refreshSessionTimeout(): Promise<void> {
+  const config = await getConfig();
+  if (config?.sessionTimeoutMinutes) {
+    currentSessionTimeout = config.sessionTimeoutMinutes * 60 * 1000;
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('vault:session-timeout-changed', {
+          detail: { minutes: config.sessionTimeoutMinutes, ms: currentSessionTimeout },
+        })
+      );
+    }
+  }
+}
+
 export function isVaultLocked(): boolean {
   if (!currentKey) return true;
-  if (Date.now() - lastActivity > SESSION_TIMEOUT) {
+  if (Date.now() - lastActivity > currentSessionTimeout) {
     lockVault();
     return true;
   }
@@ -51,7 +102,32 @@ export async function markRecoverySetupComplete(): Promise<void> {
 
 export async function getRecoveryWords(): Promise<string[] | undefined> {
   const config = await getConfig();
+  
+  // Try to decrypt encrypted recovery words first (new secure format)
+  if (config?.encryptedRecoveryWords && config.recoveryWordsIv && currentKey) {
+    try {
+      const iv = base64ToArrayBuffer(config.recoveryWordsIv);
+      const ciphertext = base64ToArrayBuffer(config.encryptedRecoveryWords);
+      const decrypted = await decrypt(ciphertext, iv, currentKey);
+      return JSON.parse(decrypted);
+    } catch {
+      // Fall back to legacy plain text storage
+    }
+  }
+  
+  // Legacy: plain text recovery words
   return config?.recoveryWords;
+}
+
+/**
+ * Generates SHA-256 hash of recovery words for verification
+ */
+async function hashRecoveryWords(words: string[]): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(words.join(' ').toLowerCase());
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export async function setupVault(pin: string): Promise<{ success: boolean; recoveryWords?: string[] }> {
@@ -63,19 +139,52 @@ export async function setupVault(pin: string): Promise<{ success: boolean; recov
     // Create verification data
     const { iv, ciphertext } = await encrypt(VERIFICATION_TEXT, key);
     
-    // Generate recovery words only for new setup
-    const recoveryWords = existingConfig?.recoveryWords || generateRecoveryWords(4);
+    // Generate recovery words only for new setup (6 words = 66 bits entropy)
+    let recoveryWords: string[] | undefined;
+    let encryptedRecoveryWords: string | undefined;
+    let recoveryWordsIv: string | undefined;
+    let recoveryWordsHash: string | undefined;
+    
+    if (existingConfig?.encryptedRecoveryWords) {
+      // Keep existing encrypted recovery words
+      encryptedRecoveryWords = existingConfig.encryptedRecoveryWords;
+      recoveryWordsIv = existingConfig.recoveryWordsIv;
+      recoveryWordsHash = existingConfig.recoveryWordsHash;
+    } else if (existingConfig?.recoveryWords) {
+      // Migrate legacy plain text to encrypted format
+      recoveryWords = existingConfig.recoveryWords;
+      const wordsJson = JSON.stringify(recoveryWords);
+      const encrypted = await encrypt(wordsJson, key);
+      encryptedRecoveryWords = arrayBufferToBase64(encrypted.ciphertext);
+      recoveryWordsIv = arrayBufferToBase64(encrypted.iv);
+      recoveryWordsHash = await hashRecoveryWords(recoveryWords);
+    } else {
+      // Generate new recovery words
+      recoveryWords = generateRecoveryWords(6);
+      const wordsJson = JSON.stringify(recoveryWords);
+      const encrypted = await encrypt(wordsJson, key);
+      encryptedRecoveryWords = arrayBufferToBase64(encrypted.ciphertext);
+      recoveryWordsIv = arrayBufferToBase64(encrypted.iv);
+      recoveryWordsHash = await hashRecoveryWords(recoveryWords);
+    }
     
     await setConfig({
       salt: arrayBufferToBase64(salt),
       verificationData: arrayBufferToBase64(ciphertext),
       verificationIv: arrayBufferToBase64(iv),
-      recoveryWords,
+      // Store encrypted recovery words
+      encryptedRecoveryWords,
+      recoveryWordsIv,
+      recoveryWordsHash,
+      // Keep legacy field for backward compatibility during migration
+      recoveryWords: undefined, // Clear legacy plain text storage
       recoverySetupComplete: existingConfig?.recoverySetupComplete || false,
+      sessionTimeoutMinutes: existingConfig?.sessionTimeoutMinutes || 2,
     });
     
     currentKey = key;
     lastActivity = Date.now();
+    currentSessionTimeout = (existingConfig?.sessionTimeoutMinutes || 2) * 60 * 1000;
     startSessionCheck();
     
     // Return words only if this is a new setup
@@ -108,7 +217,23 @@ export async function unlockVault(pin: string): Promise<boolean> {
     
     currentKey = key;
     lastActivity = Date.now();
+    currentSessionTimeout = (config.sessionTimeoutMinutes || 2) * 60 * 1000;
     startSessionCheck();
+    
+    // Migrate legacy plain text recovery words to encrypted format
+    if (config.recoveryWords && !config.encryptedRecoveryWords) {
+      const wordsJson = JSON.stringify(config.recoveryWords);
+      const encrypted = await encrypt(wordsJson, currentKey);
+      const recoveryWordsHash = await hashRecoveryWords(config.recoveryWords);
+      
+      await setConfig({
+        ...config,
+        encryptedRecoveryWords: arrayBufferToBase64(encrypted.ciphertext),
+        recoveryWordsIv: arrayBufferToBase64(encrypted.iv),
+        recoveryWordsHash,
+        recoveryWords: undefined, // Clear legacy plain text
+      });
+    }
     
     return true;
   } catch {
@@ -126,7 +251,7 @@ function startSessionCheck(): void {
     clearInterval(sessionCheckInterval);
   }
   sessionCheckInterval = window.setInterval(() => {
-    if (Date.now() - lastActivity > SESSION_TIMEOUT) {
+    if (Date.now() - lastActivity > currentSessionTimeout) {
       lockVault();
     }
   }, 10000);
@@ -198,8 +323,12 @@ export async function removePassword(id: string): Promise<void> {
 }
 
 // Export/Import functionality
+
+// Encrypted backup format marker
+const ENCRYPTED_BACKUP_MARKER = 'ENCRYPTED_VAULT_BACKUP_V1';
+
 export interface VaultBackup {
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   exportedAt: number;
   checksum: string;
   /** Salt do cofre no momento do backup (necessário para restauração em outro cofre) */
@@ -209,7 +338,28 @@ export interface VaultBackup {
   cryptoKeys?: CryptoKeyEntry[];
 }
 
-function generateChecksum(data: string): string {
+export interface EncryptedVaultBackup {
+  marker: typeof ENCRYPTED_BACKUP_MARKER;
+  salt: string;
+  iv: string;
+  data: string;
+}
+
+/**
+ * Generates SHA-256 checksum for backup integrity verification
+ * Returns first 16 hex characters for compact representation
+ */
+async function generateChecksumSHA256(data: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(data));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Legacy djb2 checksum for backward compatibility with v3 backups
+ */
+function generateChecksumLegacy(data: string): string {
   let hash = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
@@ -219,7 +369,22 @@ function generateChecksum(data: string): string {
   return Math.abs(hash).toString(16);
 }
 
-export async function exportVault(): Promise<string> {
+/**
+ * Verifies checksum supporting both SHA-256 and legacy djb2
+ */
+async function verifyChecksum(data: string, checksum: string): Promise<boolean> {
+  // Try SHA-256 first (new format - 16 hex chars)
+  const sha256Checksum = await generateChecksumSHA256(data);
+  if (sha256Checksum === checksum) {
+    return true;
+  }
+  
+  // Fall back to legacy djb2 for older backups
+  const legacyChecksum = generateChecksumLegacy(data);
+  return legacyChecksum === checksum;
+}
+
+export async function exportVault(backupPassword?: string): Promise<string> {
   if (!currentKey) throw new Error('Vault is locked');
   updateActivity();
 
@@ -243,13 +408,13 @@ export async function exportVault(): Promise<string> {
     typeof k.createdAt === 'number' && typeof k.updatedAt === 'number'
   );
 
-  // Generate checksum from all data
+  // Generate SHA-256 checksum from all data
   const dataJson = JSON.stringify({ passwords: validPasswords, cryptoKeys: validCryptoKeys });
-  const checksum = generateChecksum(dataJson);
+  const checksum = await generateChecksumSHA256(dataJson);
 
-  // v3 includes crypto keys
+  // v4 includes crypto keys and optional encryption
   const backup: VaultBackup = {
-    version: 3,
+    version: 4,
     exportedAt: Date.now(),
     checksum,
     vaultSalt: config.salt,
@@ -257,7 +422,61 @@ export async function exportVault(): Promise<string> {
     cryptoKeys: validCryptoKeys,
   };
 
-  return JSON.stringify(backup, null, 2);
+  const backupJson = JSON.stringify(backup, null, 2);
+
+  // If password provided, encrypt the entire backup
+  if (backupPassword && backupPassword.length >= 4) {
+    const salt = await generateSalt();
+    const key = await deriveKey(backupPassword, salt);
+    const { iv, ciphertext } = await encrypt(backupJson, key);
+
+    const encryptedBackup: EncryptedVaultBackup = {
+      marker: ENCRYPTED_BACKUP_MARKER,
+      salt: arrayBufferToBase64(salt),
+      iv: arrayBufferToBase64(iv),
+      data: arrayBufferToBase64(ciphertext),
+    };
+
+    return JSON.stringify(encryptedBackup, null, 2);
+  }
+
+  return backupJson;
+}
+
+/**
+ * Checks if a backup file is encrypted with an additional password
+ */
+export function isBackupEncrypted(jsonData: string): boolean {
+  try {
+    const parsed = JSON.parse(jsonData);
+    return parsed?.marker === ENCRYPTED_BACKUP_MARKER;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Decrypts an encrypted backup with the provided password
+ */
+export async function decryptBackup(jsonData: string, password: string): Promise<string> {
+  const encrypted: EncryptedVaultBackup = JSON.parse(jsonData);
+  
+  if (encrypted.marker !== ENCRYPTED_BACKUP_MARKER) {
+    throw new Error('Backup não está criptografado');
+  }
+
+  const salt = base64ToArrayBuffer(encrypted.salt);
+  const iv = base64ToArrayBuffer(encrypted.iv);
+  const data = base64ToArrayBuffer(encrypted.data);
+
+  const key = await deriveKey(password, salt);
+  
+  try {
+    const decrypted = await decrypt(data, iv, key);
+    return decrypted;
+  } catch {
+    throw new Error('Senha do backup incorreta');
+  }
 }
 
 export async function importVault(
@@ -281,7 +500,7 @@ export async function importVault(
     throw new Error('Formato de backup inválido');
   }
 
-  if (backup.version !== 1 && backup.version !== 2 && backup.version !== 3) {
+  if (backup.version !== 1 && backup.version !== 2 && backup.version !== 3 && backup.version !== 4) {
     throw new Error('Versão de backup não suportada');
   }
 
@@ -297,16 +516,16 @@ export async function importVault(
     throw new Error('Backup não contém data de exportação válida');
   }
 
-  // Step 3: Validate checksum if present (v3 uses combined data)
+  // Step 3: Validate checksum if present (supports SHA-256 and legacy djb2)
   if (backup.checksum) {
     let dataJson: string;
-    if (backup.version === 3) {
+    if (backup.version === 3 || backup.version === 4) {
       dataJson = JSON.stringify({ passwords: backup.passwords || [], cryptoKeys: backup.cryptoKeys || [] });
     } else {
       dataJson = JSON.stringify(backup.passwords || []);
     }
-    const expectedChecksum = generateChecksum(dataJson);
-    if (backup.checksum !== expectedChecksum) {
+    const isValidChecksum = await verifyChecksum(dataJson, backup.checksum);
+    if (!isValidChecksum) {
       throw new Error('Checksum inválido - arquivo pode estar corrompido');
     }
   }
@@ -509,27 +728,44 @@ export interface BackupPreviewResult {
   passwordCount: number;
   cryptoKeyCount: number;
   hasDifferentVault: boolean;
+  isEncrypted: boolean;
   isValid: boolean;
   errorMessage?: string;
 }
 
 export async function previewBackup(jsonData: string): Promise<BackupPreviewResult> {
   try {
-    const backup = JSON.parse(jsonData);
+    const parsed = JSON.parse(jsonData);
     
-    if (!backup || typeof backup !== 'object') {
-      return { version: 0, exportedAt: 0, passwordCount: 0, cryptoKeyCount: 0, hasDifferentVault: false, isValid: false, errorMessage: 'Formato de backup inválido' };
+    // Check if backup is encrypted
+    if (parsed?.marker === ENCRYPTED_BACKUP_MARKER) {
+      return { 
+        version: 0, 
+        exportedAt: 0, 
+        passwordCount: 0, 
+        cryptoKeyCount: 0, 
+        hasDifferentVault: false, 
+        isEncrypted: true,
+        isValid: true,
+        errorMessage: undefined
+      };
     }
     
-    if (backup.version !== 1 && backup.version !== 2 && backup.version !== 3) {
-      return { version: 0, exportedAt: 0, passwordCount: 0, cryptoKeyCount: 0, hasDifferentVault: false, isValid: false, errorMessage: 'Versão de backup não suportada' };
+    const backup = parsed as VaultBackup;
+    
+    if (!backup || typeof backup !== 'object') {
+      return { version: 0, exportedAt: 0, passwordCount: 0, cryptoKeyCount: 0, hasDifferentVault: false, isEncrypted: false, isValid: false, errorMessage: 'Formato de backup inválido' };
+    }
+    
+    if (backup.version !== 1 && backup.version !== 2 && backup.version !== 3 && backup.version !== 4) {
+      return { version: 0, exportedAt: 0, passwordCount: 0, cryptoKeyCount: 0, hasDifferentVault: false, isEncrypted: false, isValid: false, errorMessage: 'Versão de backup não suportada' };
     }
     
     const passwordCount = Array.isArray(backup.passwords) ? backup.passwords.length : 0;
     const cryptoKeyCount = Array.isArray(backup.cryptoKeys) ? backup.cryptoKeys.length : 0;
     
     if (passwordCount === 0 && cryptoKeyCount === 0) {
-      return { version: backup.version, exportedAt: backup.exportedAt || 0, passwordCount: 0, cryptoKeyCount: 0, hasDifferentVault: false, isValid: false, errorMessage: 'Backup vazio' };
+      return { version: backup.version, exportedAt: backup.exportedAt || 0, passwordCount: 0, cryptoKeyCount: 0, hasDifferentVault: false, isEncrypted: false, isValid: false, errorMessage: 'Backup vazio' };
     }
     
     const currentConfig = await getConfig();
@@ -537,23 +773,23 @@ export async function previewBackup(jsonData: string): Promise<BackupPreviewResu
     const backupSalt = backup.vaultSalt;
     const hasDifferentVault = !!(backupSalt && currentSalt && backupSalt !== currentSalt);
     
-    // Validate checksum
+    // Validate checksum (supports SHA-256 and legacy djb2)
     if (backup.checksum) {
       let dataJson: string;
-      if (backup.version === 3) {
+      if (backup.version === 3 || backup.version === 4) {
         dataJson = JSON.stringify({ passwords: backup.passwords || [], cryptoKeys: backup.cryptoKeys || [] });
       } else {
         dataJson = JSON.stringify(backup.passwords || []);
       }
-      const expectedChecksum = generateChecksum(dataJson);
-      if (backup.checksum !== expectedChecksum) {
-        return { version: backup.version, exportedAt: backup.exportedAt, passwordCount, cryptoKeyCount, hasDifferentVault, isValid: false, errorMessage: 'Checksum inválido' };
+      const isValidChecksum = await verifyChecksum(dataJson, backup.checksum);
+      if (!isValidChecksum) {
+        return { version: backup.version, exportedAt: backup.exportedAt, passwordCount, cryptoKeyCount, hasDifferentVault, isEncrypted: false, isValid: false, errorMessage: 'Checksum inválido' };
       }
     }
     
-    return { version: backup.version, exportedAt: backup.exportedAt || 0, passwordCount, cryptoKeyCount, hasDifferentVault, isValid: true };
+    return { version: backup.version, exportedAt: backup.exportedAt || 0, passwordCount, cryptoKeyCount, hasDifferentVault, isEncrypted: false, isValid: true };
   } catch {
-    return { version: 0, exportedAt: 0, passwordCount: 0, cryptoKeyCount: 0, hasDifferentVault: false, isValid: false, errorMessage: 'Arquivo JSON inválido' };
+    return { version: 0, exportedAt: 0, passwordCount: 0, cryptoKeyCount: 0, hasDifferentVault: false, isEncrypted: false, isValid: false, errorMessage: 'Arquivo JSON inválido' };
   }
 }
 

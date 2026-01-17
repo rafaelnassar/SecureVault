@@ -37,6 +37,24 @@ export interface VaultConfig {
   verificationIv: string;
   recoveryWords?: string[];
   recoverySetupComplete?: boolean;
+  // Encrypted recovery words (new secure storage)
+  encryptedRecoveryWords?: string;
+  recoveryWordsIv?: string;
+  recoveryWordsHash?: string; // SHA-256 hash for verification
+  // Session timeout in minutes (1, 2, 5, 10)
+  sessionTimeoutMinutes?: number;
+}
+
+// Dados de tentativas de segurança (armazenados criptografados)
+export interface SecurityAttemptData {
+  key: string; // 'pin_attempts' ou 'recovery_attempts'
+  attempts: number;
+  lastAttemptAt: number;
+  isLocked: boolean;
+  lockedAt?: number;
+  nextAllowedAttempt?: number; // Para rate limiting exponencial
+  // Hash de integridade para detectar manipulação
+  integrityHash: string;
 }
 
 interface VaultDB extends DBSchema {
@@ -54,6 +72,10 @@ interface VaultDB extends DBSchema {
     key: string;
     value: VaultConfig;
   };
+  securityAttempts: {
+    key: string;
+    value: SecurityAttemptData;
+  };
 }
 
 let dbInstance: IDBPDatabase<VaultDB> | null = null;
@@ -61,7 +83,7 @@ let dbInstance: IDBPDatabase<VaultDB> | null = null;
 export async function getDB(): Promise<IDBPDatabase<VaultDB>> {
   if (dbInstance) return dbInstance;
   
-  dbInstance = await openDB<VaultDB>('password-vault', 2, {
+  dbInstance = await openDB<VaultDB>('password-vault', 3, {
     upgrade(db, oldVersion) {
       // Passwords store (existing)
       if (!db.objectStoreNames.contains('passwords')) {
@@ -74,11 +96,18 @@ export async function getDB(): Promise<IDBPDatabase<VaultDB>> {
         db.createObjectStore('config', { keyPath: 'key' });
       }
       
-      // Crypto keys store (new in v2)
+      // Crypto keys store (v2)
       if (oldVersion < 2) {
         if (!db.objectStoreNames.contains('cryptoKeys')) {
           const cryptoStore = db.createObjectStore('cryptoKeys', { keyPath: 'id' });
           cryptoStore.createIndex('by-network', 'network');
+        }
+      }
+      
+      // Security attempts store (v3 - rate limiting seguro)
+      if (oldVersion < 3) {
+        if (!db.objectStoreNames.contains('securityAttempts')) {
+          db.createObjectStore('securityAttempts', { keyPath: 'key' });
         }
       }
     },
@@ -144,4 +173,21 @@ export async function clearAllData(): Promise<void> {
   await db.clear('passwords');
   await db.clear('cryptoKeys');
   await db.clear('config');
+  await db.clear('securityAttempts');
+}
+
+// Security Attempts functions
+export async function getSecurityAttempts(key: string): Promise<SecurityAttemptData | undefined> {
+  const db = await getDB();
+  return db.get('securityAttempts', key);
+}
+
+export async function setSecurityAttempts(data: SecurityAttemptData): Promise<void> {
+  const db = await getDB();
+  await db.put('securityAttempts', data);
+}
+
+export async function clearSecurityAttempts(key: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('securityAttempts', key);
 }

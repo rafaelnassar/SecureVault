@@ -51,7 +51,6 @@ export function PasswordGenerator({ open, onClose }: PasswordGeneratorProps) {
     setCopied(false);
   }, [length, includeUppercase, includeLowercase, includeNumbers, includeSymbols]);
 
-  // Gerar senha automaticamente ao abrir o modal
   useEffect(() => {
     if (open && !password) {
       generatePassword();
@@ -96,11 +95,11 @@ export function PasswordGenerator({ open, onClose }: PasswordGeneratorProps) {
 
   return (
     <Modal open={open} onClose={handleClose} title="Gerador de Senhas" maxWidth="sm">
-      <div className="space-y-5">
+      <div className="space-y-4 sm:space-y-5">
         {/* Password Display */}
         <div className="relative">
           <div className={cn(
-            "w-full px-4 py-3.5 bg-muted/50 rounded-xl font-mono text-sm break-all min-h-[52px] flex items-center border border-border",
+            "w-full px-3 sm:px-4 py-3 sm:py-3.5 bg-muted/50 rounded-xl font-mono text-sm sm:text-base break-all min-h-[52px] flex items-center border border-border pr-20",
             password ? "text-foreground" : "text-muted-foreground"
           )}>
             {password || "Gerando..."}
@@ -112,20 +111,20 @@ export function PasswordGenerator({ open, onClose }: PasswordGeneratorProps) {
                 variant="ghost"
                 size="icon"
                 onClick={generatePassword}
-                className="h-7 w-7"
+                className="h-8 w-8 sm:h-9 sm:w-9"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className="w-4 h-4" />
               </Button>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={handleCopy}
-                className="h-7 w-7"
+                className="h-8 w-8 sm:h-9 sm:w-9"
               >
                 {copied ? (
-                  <Check className="w-3.5 h-3.5 text-success" />
+                  <Check className="w-4 h-4 text-success" />
                 ) : (
-                  <Copy className="w-3.5 h-3.5" />
+                  <Copy className="w-4 h-4" />
                 )}
               </Button>
             </div>
@@ -139,7 +138,7 @@ export function PasswordGenerator({ open, onClose }: PasswordGeneratorProps) {
             animate={{ opacity: 1, y: 0 }}
             className="flex items-center gap-3"
           >
-            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+            <div className="flex-1 h-1.5 sm:h-2 bg-muted rounded-full overflow-hidden">
               <motion.div
                 className={cn("h-full rounded-full", getStrengthColor())}
                 initial={{ width: 0 }}
@@ -147,7 +146,7 @@ export function PasswordGenerator({ open, onClose }: PasswordGeneratorProps) {
                 transition={{ duration: 0.3 }}
               />
             </div>
-            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[72px] text-right tracking-tight">
+            <span className="text-xs sm:text-sm font-medium text-muted-foreground whitespace-nowrap min-w-[72px] text-right">
               {getStrengthLabel()}
             </span>
           </motion.div>
@@ -156,8 +155,8 @@ export function PasswordGenerator({ open, onClose }: PasswordGeneratorProps) {
         {/* Length Slider */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium tracking-tight">Tamanho da senha</Label>
-            <span className="text-xs font-mono font-medium bg-muted px-2 py-1 rounded-md">
+            <Label className="text-sm sm:text-base font-medium">Tamanho da senha</Label>
+            <span className="text-sm font-mono font-medium bg-muted px-2.5 py-1 rounded-lg min-w-[40px] text-center">
               {length}
             </span>
           </div>
@@ -175,67 +174,73 @@ export function PasswordGenerator({ open, onClose }: PasswordGeneratorProps) {
         </div>
 
         {/* Options Grid */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-muted/40 rounded-lg border border-border/50">
-            <Label htmlFor="lowercase" className="text-xs font-medium cursor-pointer tracking-tight">
-              Minúsculas
-            </Label>
-            <Switch
-              id="lowercase"
-              checked={includeLowercase}
-              onCheckedChange={(checked) => {
-                setIncludeLowercase(checked);
-                setCopied(false);
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-muted/40 rounded-lg border border-border/50">
-            <Label htmlFor="uppercase" className="text-xs font-medium cursor-pointer tracking-tight">
-              Maiúsculas
-            </Label>
-            <Switch
-              id="uppercase"
-              checked={includeUppercase}
-              onCheckedChange={(checked) => {
-                setIncludeUppercase(checked);
-                setCopied(false);
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-muted/40 rounded-lg border border-border/50">
-            <Label htmlFor="numbers" className="text-xs font-medium cursor-pointer tracking-tight">
-              Números
-            </Label>
-            <Switch
-              id="numbers"
-              checked={includeNumbers}
-              onCheckedChange={(checked) => {
-                setIncludeNumbers(checked);
-                setCopied(false);
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-muted/40 rounded-lg border border-border/50">
-            <Label htmlFor="symbols" className="text-xs font-medium cursor-pointer tracking-tight">
-              Símbolos
-            </Label>
-            <Switch
-              id="symbols"
-              checked={includeSymbols}
-              onCheckedChange={(checked) => {
-                setIncludeSymbols(checked);
-                setCopied(false);
-              }}
-            />
-          </div>
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
+          <OptionToggle
+            id="lowercase"
+            label="Minúsculas"
+            checked={includeLowercase}
+            onChange={(checked) => {
+              setIncludeLowercase(checked);
+              setCopied(false);
+            }}
+          />
+          <OptionToggle
+            id="uppercase"
+            label="Maiúsculas"
+            checked={includeUppercase}
+            onChange={(checked) => {
+              setIncludeUppercase(checked);
+              setCopied(false);
+            }}
+          />
+          <OptionToggle
+            id="numbers"
+            label="Números"
+            checked={includeNumbers}
+            onChange={(checked) => {
+              setIncludeNumbers(checked);
+              setCopied(false);
+            }}
+          />
+          <OptionToggle
+            id="symbols"
+            label="Símbolos"
+            checked={includeSymbols}
+            onChange={(checked) => {
+              setIncludeSymbols(checked);
+              setCopied(false);
+            }}
+          />
         </div>
 
         {/* Generate Button */}
-        <Button onClick={generatePassword} className="w-full gap-2 h-11">
-          <Sparkles className="w-4 h-4" />
+        <Button onClick={generatePassword} className="w-full gap-2 h-11 sm:h-12 text-sm sm:text-base">
+          <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
           Gerar Nova Senha
         </Button>
       </div>
     </Modal>
+  );
+}
+
+interface OptionToggleProps {
+  id: string;
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}
+
+function OptionToggle({ id, label, checked, onChange }: OptionToggleProps) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-3 py-2.5 sm:py-3 bg-muted/40 rounded-xl border border-border/50 min-h-[48px]">
+      <Label htmlFor={id} className="text-sm sm:text-base font-medium cursor-pointer">
+        {label}
+      </Label>
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={onChange}
+      />
+    </div>
   );
 }

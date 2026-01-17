@@ -1,93 +1,95 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { getSessionTimeout } from '@/lib/vault';
 
-const SESSION_TIMEOUT = 2 * 60 * 1000; // 2 minutes in ms
+const DEFAULT_TIMEOUT_MS = 2 * 60 * 1000;
 
 export function useAutoLockTimer(isUnlocked: boolean) {
-  const [remainingTime, setRemainingTime] = useState(SESSION_TIMEOUT);
+  const [sessionTimeoutMs, setSessionTimeoutMs] = useState(DEFAULT_TIMEOUT_MS);
+  const [remainingTime, setRemainingTime] = useState(DEFAULT_TIMEOUT_MS);
   const lastActivityRef = useRef(Date.now());
-  const isWindowActiveRef = useRef(true);
 
   const resetTimer = useCallback(() => {
     lastActivityRef.current = Date.now();
   }, []);
 
-  // Detecta se a janela está ativa
+  // Load timeout from persisted settings whenever we unlock
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        isWindowActiveRef.current = true;
-        // Reseta o timer quando a janela volta a ficar ativa
-        resetTimer();
-      } else {
-        isWindowActiveRef.current = false;
-      }
-    };
+    let cancelled = false;
 
-    const handleFocus = () => {
-      isWindowActiveRef.current = true;
-      resetTimer();
-    };
-
-    const handleBlur = () => {
-      isWindowActiveRef.current = false;
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-    window.addEventListener('blur', handleBlur);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-      window.removeEventListener('blur', handleBlur);
-    };
-  }, [resetTimer]);
-
-  // Detecta atividade do usuário
-  useEffect(() => {
     if (!isUnlocked) {
-      setRemainingTime(SESSION_TIMEOUT);
+      setRemainingTime(sessionTimeoutMs);
       return;
     }
 
-    const events = ['mousedown', 'keydown', 'touchstart', 'scroll', 'mousemove', 'click'];
-    
-    const handleActivity = () => {
-      if (isWindowActiveRef.current) {
-        resetTimer();
+    (async () => {
+      try {
+        const ms = await getSessionTimeout();
+        if (cancelled) return;
+        setSessionTimeoutMs(ms);
+        setRemainingTime(ms);
+        lastActivityRef.current = Date.now();
+      } catch {
+        // Keep default
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isUnlocked]);
+
+  // React to changes coming from Settings (custom event dispatched by lib/vault)
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ minutes?: number; ms?: number }>).detail;
+      const ms = typeof detail?.ms === 'number'
+        ? detail.ms
+        : (typeof detail?.minutes === 'number' ? detail.minutes * 60 * 1000 : undefined);
+
+      if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {
+        setSessionTimeoutMs(ms);
+        setRemainingTime(ms);
+        lastActivityRef.current = Date.now();
       }
     };
 
-    events.forEach(event => {
+    window.addEventListener('vault:session-timeout-changed', handler);
+    return () => window.removeEventListener('vault:session-timeout-changed', handler);
+  }, []);
+
+  // Detecta atividade do usuário
+  useEffect(() => {
+    if (!isUnlocked) return;
+
+    const events = ['mousedown', 'keydown', 'touchstart', 'scroll', 'mousemove', 'click'];
+
+    const handleActivity = () => {
+      resetTimer();
+    };
+
+    events.forEach((event) => {
       window.addEventListener(event, handleActivity, { passive: true });
     });
 
     return () => {
-      events.forEach(event => {
+      events.forEach((event) => {
         window.removeEventListener(event, handleActivity);
       });
     };
   }, [isUnlocked, resetTimer]);
 
-  // Atualiza o tempo restante apenas se a janela estiver inativa
+  // Atualiza o tempo restante com base em inatividade
   useEffect(() => {
     if (!isUnlocked) return;
 
-    const interval = setInterval(() => {
-      // Só conta o tempo se a janela não estiver ativa
-      if (!isWindowActiveRef.current) {
-        const elapsed = Date.now() - lastActivityRef.current;
-        const remaining = Math.max(0, SESSION_TIMEOUT - elapsed);
-        setRemainingTime(remaining);
-      } else {
-        // Janela ativa = reseta o timer
-        lastActivityRef.current = Date.now();
-        setRemainingTime(SESSION_TIMEOUT);
-      }
+    const interval = window.setInterval(() => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      const remaining = Math.max(0, sessionTimeoutMs - elapsed);
+      setRemainingTime(remaining);
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [isUnlocked]);
+    return () => window.clearInterval(interval);
+  }, [isUnlocked, sessionTimeoutMs]);
 
   const formatTime = useCallback((ms: number) => {
     const totalSeconds = Math.ceil(ms / 1000);

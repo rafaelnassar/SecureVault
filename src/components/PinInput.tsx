@@ -71,13 +71,14 @@ export const PinInput = forwardRef<HTMLDivElement, PinInputProps>(
     };
 
     return (
-      <div ref={ref} className="flex gap-2.5 justify-center">
+      <div ref={ref} className="flex gap-2 sm:gap-2.5 justify-center w-full max-w-xs mx-auto px-2">
         {values.map((value, index) => (
           <motion.div
             key={index}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: index * 0.04, duration: 0.2 }}
+            className="flex-1"
           >
             <input
               ref={(el) => (inputRefs.current[index] = el)}
@@ -90,12 +91,13 @@ export const PinInput = forwardRef<HTMLDivElement, PinInputProps>(
               onPaste={handlePaste}
               disabled={disabled}
               className={cn(
-                "w-12 h-14 text-center text-xl font-semibold rounded-xl",
-                "bg-input border-2 border-border",
-                "focus:outline-none focus:border-foreground focus:ring-2 focus:ring-foreground/10",
+                // Proporções quadradas com altura fixa de 48px - consistente com Input
+                "w-full h-12 text-center text-xl font-semibold rounded-lg",
+                "bg-background border-2 border-border",
+                "focus:outline-none focus:border-primary focus:ring-2 focus:ring-ring/20",
                 "transition-all duration-200",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
-                value && "border-foreground/30 bg-muted",
+                value && "border-primary/40 bg-muted/50",
                 error && "border-destructive animate-shake"
               )}
               style={{ fontFamily: 'var(--font-mono)' }}

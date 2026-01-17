@@ -9,6 +9,7 @@ export interface BackupPreview {
   passwordCount: number;
   cryptoKeyCount?: number;
   hasDifferentVault: boolean;
+  isEncrypted?: boolean;
   isValid: boolean;
   errorMessage?: string;
 }
